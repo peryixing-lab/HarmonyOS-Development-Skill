@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "workflowVersion": 4,
+  "designSource": "figma",
+  "variant": "full",
+  "workflow": "design-to-arkts",
+  "runtimeContractPath": "references/runtime-contract.md",
+  "stages": [
+    {
+      "id": 1,
+      "title": "01 - 获取并校验 Figma React 设计源",
+      "instructionPath": "references/figma/full/stages/01-acquire-figma-react-source.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 2,
+      "title": "02 - React 设计转换 arkts 代码（需人工确认）",
+      "instructionPath": "references/figma/full/stages/02-convert-react-to-arkui.md",
+      "requiresConfirmation": true,
+      "confirmationContinuesStage": true
+    },
+    {
+      "id": 3,
+      "title": "03 - 补全 ArkTS 业务交互逻辑",
+      "instructionPath": "references/figma/full/stages/03-complete-interaction-logic.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 4,
+      "title": "04 - 完成 HDS 适配、质量审计与最终构建",
+      "instructionPath": "references/figma/full/stages/04-quality-and-build.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 5,
+      "title": "05 - 视觉还原度校准",
+      "instructionPath": "references/figma/full/stages/05-visual-calibration.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 6,
+      "title": "06 - 总结",
+      "instructionPath": "references/figma/full/stages/06-summary.md",
+      "requiresConfirmation": false
+    }
+  ]
+}

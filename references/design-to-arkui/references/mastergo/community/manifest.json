@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/burnice-cn/mastergo-mcp-server",
+  "baseCommit": "0b710a4b9d8f580ccd91945b0328b22b7e398f51",
+  "patchSha256": "10df3c71d11d113cda61fa7ea528fb994e49309789f1115e53dfc61b37bbd07e",
+  "files": [
+    "mastergo-api-bridge/README.md",
+    "mastergo-api-bridge/package.json",
+    "mastergo-api-bridge/scripts/build.mjs",
+    "mastergo-api-bridge/src/manifest.json",
+    "mastergo-api-bridge/src/plugin/api/node/operations/result.ts",
+    "mastergo-api-bridge/src/plugin/connection-panel.ts",
+    "mastergo-api-bridge/src/plugin/connection-session.ts",
+    "mastergo-api-bridge/src/plugin/index.ts",
+    "mastergo-api-bridge/src/plugin/message.ts",
+    "mastergo-api-bridge/src/ui/index.html",
+    "mastergo-api-bridge/test/background-runtime.test.mjs",
+    "mastergo-api-bridge/test/export-result.test.mjs",
+    "mastergo-api-bridge/test/ui-message-shape.test.ts",
+    "mcp-server/src/index.ts",
+    "mcp-server/src/mastergo-api/register-apis.ts",
+    "mcp-server/src/confirm-pairing.ts",
+    "mcp-server/src/pairing-server.ts",
+    "mcp-server/test/connection-panel.test.ts",
+    "mcp-server/test/pairing-server.test.ts"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "workflowVersion": 4,
+  "designSource": "mastergo",
+  "variant": "fast",
+  "workflow": "design-to-arkts-fast",
+  "runtimeContractPath": "references/mastergo/runtime-contract.md",
+  "stages": [
+    {
+      "id": 1,
+      "title": "01 - 获取并校验 MasterGo 设计源",
+      "instructionPath": "references/mastergo/fast/stages/01-acquire-mastergo-context.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 2,
+      "title": "02 - MasterGo 设计转换 ArkUI",
+      "instructionPath": "references/mastergo/fast/stages/02-convert-mastergo-to-arkui.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 3,
+      "title": "03 - 补全 ArkTS 业务交互逻辑",
+      "instructionPath": "references/mastergo/fast/stages/03-complete-interaction-logic.md",
+      "requiresConfirmation": false,
+      "reusesInstructionPath": "references/figma/fast/stages/03-complete-interaction-logic.md",
+      "requiredOutputs": [
+        "stage3-interaction-report.md"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "04 - 完成 HDS 适配、质量审计与最终构建",
+      "instructionPath": "references/mastergo/fast/stages/04-quality-and-build.md",
+      "requiresConfirmation": false,
+      "reusesInstructionPath": "references/figma/fast/stages/04-quality-and-build.md",
+      "requiredOutputs": [
+        "stage4-quality-audit.json",
+        "stage4-quality-audit.md",
+        "stage4-build-report.md",
+        "hds-decision.json"
+      ],
+      "buildEvidence": "stage4-quality-audit.json"
+    },
+    {
+      "id": 5,
+      "title": "05 - 总结",
+      "instructionPath": "references/mastergo/fast/stages/05-summary.md",
+      "requiresConfirmation": false,
+      "reusesInstructionPath": "references/figma/fast/stages/05-summary.md",
+      "requiredOutputs": [
+        "summary.md"
+      ]
+    }
+  ]
+}

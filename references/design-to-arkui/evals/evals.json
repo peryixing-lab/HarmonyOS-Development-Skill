@@ -1,0 +1,46 @@
+{
+  "skill_name": "hmos-design-to-arkts",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我把这个 Figma 设计稿转成 HarmonyOS 应用，链接：https://www.figma.com/design/AbCdEfgh/HarmonyDemo?node-id=123-456，目标工程在 D:/work/MyApplication",
+      "expected_output": "识别来源为 figma（design URL 且含 node-id）；先做需求预检与必要澄清（一次性问全），预检完成前不选择、不读取、不执行任一 workflow；确认后走 Figma 路线（Anchor MCP 获取输入 + 能力 hmos-d2a-react-to-arkui 实现），不得走 Pixso 流程",
+      "assertions": [
+        { "text": "判定设计来源为 figma，未误判为 pixso", "type": "behavioral" },
+        { "text": "需求预检完成前未选择、未读取或执行任何 workflow", "type": "behavioral" },
+        { "text": "澄清问题一次性同步提出，未逐条分次询问", "type": "behavioral" },
+        { "text": "能通过探索工程或读取设计稿自行发现的信息未询问用户", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我把这两个设计稿都转成应用：https://pixso.design/design/xyz889 和 https://www.figma.com/design/AbCdEfgh/Demo?node-id=3-1",
+      "expected_output": "识别到同时提供两种来源：先一次性澄清要求用户二选一，不得猜测默认来源，不得启动 pixso 或 figma 任一工作流（当前不支持同一 run 混合来源）",
+      "assertions": [
+        { "text": "识别到双来源冲突并停止，未猜测默认来源", "type": "behavioral" },
+        { "text": "澄清一次性提出（要求二选一），未逐条分次询问", "type": "behavioral" },
+        { "text": "未启动 pixso-arkts 或 Figma 任一流程", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "$hmos-design-to-arkts --fast --full 把这个 Pixso 设计稿转成应用：https://pixso.design/design/xyz889，工程在 ./MyApplication",
+      "expected_output": "识别到 --fast 与 --full 参数冲突：停止并提示用户输入 --fast 或 --full，不启动任何流程",
+      "assertions": [
+        { "text": "识别参数冲突并停止，未启动工作流", "type": "behavioral" },
+        { "text": "提示用户改用单一 --fast 或 --full", "type": "behavioral" },
+        { "text": "未自行猜测选用 fast 或 full", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "用这个 Figma 文件生成鸿蒙页面：https://www.figma.com/design/AbCdEfgh/Demo （链接里没有节点信息）",
+      "expected_output": "识别 Figma URL 缺少 node-id：一次性澄清索取 node-id，不得猜测节点，不得转走 pixso 流程，澄清完成前不启动任一 workflow",
+      "assertions": [
+        { "text": "识别 Figma 缺少 node-id 并请求补充", "type": "behavioral" },
+        { "text": "未将来源误判为 pixso 或改走 Pixso 流程", "type": "behavioral" },
+        { "text": "澄清完成前未启动任一 workflow", "type": "behavioral" }
+      ]
+    }
+  ]
+}

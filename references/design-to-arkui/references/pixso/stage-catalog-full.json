@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "workflowVersion": 4,
+  "designSource": "pixso",
+  "variant": "full",
+  "workflow": "design-to-arkts",
+  "runtimeContractPath": "references/runtime-contract.md",
+  "stages": [
+    {
+      "id": 1,
+      "title": "01 - 获取 Pixso DSL",
+      "instructionPath": "references/pixso/full/stages/01-acquire-pixso-dsl.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 2,
+      "title": "02 - 生成前端骨架代码、下载图片资源",
+      "instructionPath": "references/pixso/full/stages/02-generate-skeleton-and-assets.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 3,
+      "title": "03 - 理解目标 ArkTS 工程",
+      "instructionPath": "references/pixso/full/stages/03-understand-repository.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 4,
+      "title": "04 - 选择 ArkUI/HDS 最佳实践",
+      "instructionPath": "references/pixso/full/stages/04-select-component-practices.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 5,
+      "title": "05 - 设计方案与组件树确认（需人工确认）",
+      "instructionPath": "references/pixso/full/stages/05-design-and-confirm-component-tree.md",
+      "requiresConfirmation": true
+    },
+    {
+      "id": 6,
+      "title": "06 - 实现页面静态布局",
+      "instructionPath": "references/pixso/full/stages/06-implement-static-layout.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 7,
+      "title": "07 - 补全 ArkTS 交互逻辑",
+      "instructionPath": "references/pixso/full/stages/07-complete-interaction-logic.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 8,
+      "title": "08 - 完成质量检查与构建",
+      "instructionPath": "references/pixso/full/stages/08-quality-build-and-audits.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 9,
+      "title": "09 - 视觉还原度校准",
+      "instructionPath": "references/pixso/full/stages/09-visual-calibration.md",
+      "requiresConfirmation": false
+    },
+    {
+      "id": 10,
+      "title": "10 - 总结",
+      "instructionPath": "references/pixso/full/stages/10-summary.md",
+      "requiresConfirmation": false
+    }
+  ]
+}

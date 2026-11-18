@@ -1,0 +1,1754 @@
+diff --git a/mastergo-api-bridge/README.md b/mastergo-api-bridge/README.md
+index 461531c..8a8c943 100644
+--- a/mastergo-api-bridge/README.md
++++ b/mastergo-api-bridge/README.md
+@@ -19,8 +19,33 @@ After `yarn build`, load the `plugin/` directory in MasterGo.
+ - `src/shared/protocol.ts`: shared TypeScript protocol types used by the plugin sandbox code.
+ - `src/manifest.json`: plugin manifest source.
+ - `plugin/index.js`: compiled plugin sandbox script.
+-- `plugin/index.html`: plugin UI file, loaded independently by MasterGo; it is not imported by or compiled into `index.js`.
++- `src/ui/index.html`: plugin UI source, copied into `plugin/index.html` by the build.
+ - `plugin/manifest.json`: copied manifest artifact.
+ 
+ MasterGo runtime globals such as `mg` and `__html__` are provided by
+ `@mastergo/plugin-typings` through `tsconfig.json`.
++
++## DevEco background connection
++
++MasterGo · DevEco Code
++
++首次连接点击“连接 DevEco Code”，核对插件和本机系统确认框显示的六位配对码，再点击“允许连接”。无需获取个人 Token、复制本机口令或打开网页。确认后按当前文件在本机保存连接，下次运行自动连接；“断开连接”会清除此文件记录。手动口令入口保留在折叠区域。
++
++系统确认框由本机服务发起：macOS 使用系统自带 osascript，Windows 使用 PowerShell / Windows Forms，Linux 需要安装 zenity 并在桌面会话中运行。无法弹出时会报错，不会自动放行。配对两分钟过期，关闭插件会取消确认框；同一时刻只允许一个待确认请求。服务校验 loopback、Host 和请求 Origin，凭据仅通过发起请求的 WebSocket 返回，不出现在确认框、MCP 工具返回或日志中。网页和插件消息均不能批准配对。该机制用于本机已有用户会话，不提供对抗恶意本机进程的隔离。
++
++连接后点击“后台运行”：使用 MasterGo 官方 mg.ui.hide() 隐藏面板，插件和 WebSocket 继续运行。
++在 DevEco Code 中请求“显示 MasterGo 连接面板”，调用 mastergo_connection_panel(action=show) 可唤回；action=status 查看状态，action=hide 转后台。
++点击“断开连接”会清除本次连接口令及重连任务，需要重新配对才能连接。
++从插件菜单再次运行可能创建新的插件实例，不等于唤回隐藏面板。一键配对自动保存连接；使用手动口令且需要自动恢复时，连接前勾选“记住此文件的本机连接，重新运行插件时自动连接”。此选项默认关闭；启用后通过 mg.clientStorage 在本机按文件保存配对口令，不写入设计节点、不随插件包分发。重新运行会建立新连接，不能视为原连接始终未中断。点击“断开连接”会同时删除此文件的保存记录。
++宿主复用实例并触发 run 事件时，仅显示已有面板；宿主新建实例时，按上述本机设置恢复连接。新实例接管服务后，旧实例停止重连，避免两个实例互相抢占。
++右上角 × 是宿主的“结束插件”，确认退出后会断连，不能被改为隐藏。支持关闭确认的客户端会提示改用后台运行。关闭文件、切换导致插件终止的编辑模式或退出客户端也会断连。
++网络断开时会显示面板并尝试重连；明确点击断开后不会自动重连。
++
++本插件只读取设计和公开导出资源，不修改画布。手动连接且不勾选“记住”时口令仅保存在运行内存；勾选后的本机存储不会跨用户共享，也不内嵌到插件包。首次安装用原本的导入方式即可，无需发布。
++Upstream: https://github.com/burnice-cn/mastergo-mcp-server
++Commit: 0b710a4b9d8f580ccd91945b0328b22b7e398f51
++License: MIT（见 LICENSE）
++
++官方依据：https://developers.mastergo.com/apis/ui.html
++运行事件：https://developers.mastergo.com/apis/mastergo.html#on
++本机存储：https://developers.mastergo.com/apis/clientStorage
+diff --git a/mastergo-api-bridge/package.json b/mastergo-api-bridge/package.json
+index 16e7d8c..9549def 100644
+--- a/mastergo-api-bridge/package.json
++++ b/mastergo-api-bridge/package.json
+@@ -6,7 +6,8 @@
+   "description": "MasterGo plugin bridge that connects to mcp-server over WebSocket.",
+   "scripts": {
+     "build": "node scripts/build.mjs",
+-    "typecheck": "tsc -p tsconfig.json --noEmit"
++    "typecheck": "tsc -p tsconfig.json --noEmit",
++    "test": "node --experimental-strip-types --test test/*.test.ts test/*.test.mjs"
+   },
+   "packageManager": "yarn@4.9.1",
+   "devDependencies": {
+diff --git a/mastergo-api-bridge/scripts/build.mjs b/mastergo-api-bridge/scripts/build.mjs
+index e0a272c..eb40238 100644
+--- a/mastergo-api-bridge/scripts/build.mjs
++++ b/mastergo-api-bridge/scripts/build.mjs
+@@ -1,4 +1,4 @@
+-import { mkdir, copyFile } from "node:fs/promises";
++import { mkdir, copyFile, readFile } from "node:fs/promises";
+ import { dirname, resolve } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { build } from "esbuild";
+@@ -17,6 +17,8 @@ await build({
+   platform: "browser",
+   target: "es2019",
+   legalComments: "none",
++  banner: { js: "/*!\n" + await readFile(resolve(rootDir, "../LICENSE"), "utf8") + "\n*/" },
+ });
+ 
+ await copyFile(resolve(srcDir, "manifest.json"), resolve(pluginDir, "manifest.json"));
++await copyFile(resolve(srcDir, "ui/index.html"), resolve(pluginDir, "index.html"));
+diff --git a/mastergo-api-bridge/src/manifest.json b/mastergo-api-bridge/src/manifest.json
+index 58738cd..3377ca5 100644
+--- a/mastergo-api-bridge/src/manifest.json
++++ b/mastergo-api-bridge/src/manifest.json
+@@ -1,13 +1,9 @@
+ {
+-  "name": "mastergo-api-bridge",
+-  "id": 198347642800023,
+-  "main": "index.js",
+-  "ui": "index.html",
++  "name": "MasterGo · DevEco Code",
++  "main": "./index.js",
++  "ui": "./index.html",
+   "editor_type": [
+-    "canvas",
+-    "devMode"
++    "canvas"
+   ],
+-  "capabilities": [
+-    "inspect"
+-  ]
+-}
+\ No newline at end of file
++  "api": "1.0.0"
++}
+diff --git a/mastergo-api-bridge/src/plugin/api/node/operations/result.ts b/mastergo-api-bridge/src/plugin/api/node/operations/result.ts
+index ff3c00d..b47094b 100644
+--- a/mastergo-api-bridge/src/plugin/api/node/operations/result.ts
++++ b/mastergo-api-bridge/src/plugin/api/node/operations/result.ts
+@@ -113,13 +113,24 @@ export function rangeEnd(params: JsonRecord | undefined, method: string): number
+ }
+ 
+ function uint8ArrayToBase64(value: Uint8Array): string {
+-  let binary = "";
+-  const chunkSize = 0x8000;
+-
+-  for (let index = 0; index < value.length; index += chunkSize) {
+-    const chunk = value.subarray(index, index + chunkSize);
+-    binary += String.fromCharCode(...chunk);
++  // MasterGo's plugin sandbox provides neither the browser's btoa nor Node's Buffer.
++  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++  const chunks: string[] = [];
++  const chunkSize = 12_288; // A multiple of three keeps padding in the final chunk only.
++
++  for (let start = 0; start < value.length; start += chunkSize) {
++    let chunk = "";
++    const end = Math.min(start + chunkSize, value.length);
++    for (let index = start; index < end; index += 3) {
++      const first = value[index];
++      const second = value[index + 1] ?? 0;
++      const third = value[index + 2] ?? 0;
++      chunk += alphabet[first >> 2]
++        + alphabet[((first & 3) << 4) | (second >> 4)]
++        + (index + 1 < value.length ? alphabet[((second & 15) << 2) | (third >> 6)] : "=")
++        + (index + 2 < value.length ? alphabet[third & 63] : "=");
++    }
++    chunks.push(chunk);
+   }
+-
+-  return btoa(binary);
++  return chunks.join("");
+ }
+diff --git a/mastergo-api-bridge/src/plugin/connection-panel.ts b/mastergo-api-bridge/src/plugin/connection-panel.ts
+new file mode 100644
+index 0000000..1572545
+--- /dev/null
++++ b/mastergo-api-bridge/src/plugin/connection-panel.ts
+@@ -0,0 +1,41 @@
++export function createConnectionPanel() {
++  let connected = false;
++  let visible = true;
++  const ui = mg.ui as UIAPI & {
++    setCloseConfirm?: (options: { enabled: boolean; message: string }) => void;
++  };
++
++  return {
++    connectionChanged(value: boolean) {
++      connected = value;
++      ui.setCloseConfirm?.({
++        enabled: value,
++        message: "关闭插件会断开连接。若要保持连接，请取消后点击“后台运行”。",
++      });
++      if (!value && !visible) {
++        ui.show();
++        visible = true;
++      }
++    },
++    invoke(params: Record<string, unknown> | undefined) {
++      const action = params?.action;
++      if (action !== "show" && action !== "hide" && action !== "status") {
++        throw new Error("Panel action must be show, hide or status.");
++      }
++      if (action === "hide") {
++        if (!connected) throw new Error("Connect before running in the background.");
++        ui.hide();
++        visible = false;
++      }
++      if (action === "show") {
++        ui.show();
++        visible = true;
++      }
++      return { connected, visible: ui.viewport?.visible ?? visible };
++    },
++    exit() {
++      ui.setCloseConfirm?.({ enabled: false, message: "" });
++      mg.closePlugin();
++    },
++  };
++}
+diff --git a/mastergo-api-bridge/src/plugin/connection-session.ts b/mastergo-api-bridge/src/plugin/connection-session.ts
+new file mode 100644
+index 0000000..9f49900
+--- /dev/null
++++ b/mastergo-api-bridge/src/plugin/connection-session.ts
+@@ -0,0 +1,26 @@
++// Keep opt-in pairing local to this plugin and document, never in design nodes.
++export function createConnectionSession() {
++  const key = `deveco.connection.v1:${mg.documentId}`;
++  let pending: Promise<unknown> = Promise.resolve();
++
++  return {
++    invoke(action: "restore" | "save" | "clear", token?: string) {
++      // Serialize storage operations so an earlier save cannot undo a disconnect.
++      const result = pending.then(async () => {
++        if (action === "clear") {
++          await mg.clientStorage.deleteAsync(key);
++          return null;
++        }
++        if (action === "save") {
++          if (!token || !/^[a-f0-9]{64}$/.test(token)) throw new Error("Invalid pairing credential");
++          await mg.clientStorage.setAsync(key, token);
++          return null;
++        }
++        const saved: unknown = await mg.clientStorage.getAsync(key);
++        return typeof saved === "string" && /^[a-f0-9]{64}$/.test(saved) ? saved : null;
++      });
++      pending = result.catch(() => undefined);
++      return result;
++    },
++  };
++}
+diff --git a/mastergo-api-bridge/src/plugin/index.ts b/mastergo-api-bridge/src/plugin/index.ts
+index 4c3ca13..5dbd3b8 100644
+--- a/mastergo-api-bridge/src/plugin/index.ts
++++ b/mastergo-api-bridge/src/plugin/index.ts
+@@ -5,18 +5,43 @@ import {
+ import { getApiHandler, registerApiHandler } from "./api/api-handler";
+ import { registerApis } from "./api/api-register";
+ import { apiVersionHandler } from "./api/mg/api-version";
+-import { parsePluginRequestMessage } from "./message";
++import { parsePanelMessage, parsePluginRequestMessage } from "./message";
++import { createConnectionPanel } from "./connection-panel";
++import { createConnectionSession } from "./connection-session";
+ 
+ const UI_SIZE = {
+-  width: 360,
+-  height: 220,
++  width: 420,
++  height: 520,
+ };
+ 
+ mg.showUI(__html__, UI_SIZE);
++const panel = createConnectionPanel();
++const session = createConnectionSession();
++
++// Hosts that reuse a running plugin should reveal its existing UI, not recreate it.
++mg.on("run", () => panel.invoke({ action: "show" }));
+ 
+ registerApis();
+ 
+ mg.ui.onmessage = async (message: unknown) => {
++  const control = parsePanelMessage(message);
++  if (control) {
++    if (control.type === "bridge.session") {
++      try {
++        const token = await session.invoke(control.action, control.token);
++        mg.ui.postMessage({ type: "bridge.session.result", id: control.id, token, ok: true });
++      } catch {
++        mg.ui.postMessage({ type: "bridge.session.result", id: control.id, ok: false });
++      }
++      return;
++    }
++    if (control.type === "bridge.connection") panel.connectionChanged(control.connected);
++    if (control.type === "bridge.ui.hide" && panel.invoke({ action: "status" }).connected) {
++      panel.invoke({ action: "hide" });
++    }
++    if (control.type === "bridge.ui.exit") panel.exit();
++    return;
++  }
+   const request = parsePluginRequestMessage(message);
+   if (!request) {
+     return;
+@@ -44,6 +69,18 @@ mg.ui.onmessage = async (message: unknown) => {
+ };
+ 
+ async function handleBridgeRequest(payload: InvokeMethodRequest): Promise<ApiBridgeResult> {
++  // Connection UI controls do not grant access to canvas mutation APIs.
++  if (payload.method === "bridge.panel") {
++    return { code: 0, res: panel.invoke(payload.params), errorMsg: "" };
++  }
++  // Enforce the same read-only boundary inside the actual MasterGo plugin.
++  if (!new Set([
++    "mg.apiVersion", "mg.document", "mg.documentId", "mg.getNodeById",
++    "node.page", "node.summary", "node.findChildren", "node.findAll",
++    "node.findAllWithCriteria", "node.export", "node.exportAsync",
++  ]).has(payload.method)) {
++    throw new Error("This DevEco trial only permits design reads and public exports.");
++  }
+   const handler = getApiHandler(payload.method);
+   if (handler) {
+     const res = await handler.call(payload.params);
+diff --git a/mastergo-api-bridge/src/plugin/message.ts b/mastergo-api-bridge/src/plugin/message.ts
+index 960a4d2..c3002ab 100644
+--- a/mastergo-api-bridge/src/plugin/message.ts
++++ b/mastergo-api-bridge/src/plugin/message.ts
+@@ -8,6 +8,31 @@ export function parsePluginRequestMessage(value: unknown): PluginRequestMessage
+   return isPluginRequestMessage(message) ? message : null;
+ }
+ 
++type PanelMessage =
++  | { type: "bridge.connection"; connected: boolean }
++  | { type: "bridge.ui.hide" | "bridge.ui.exit" }
++  | { type: "bridge.session"; id: string; action: "restore" | "save" | "clear"; token?: string };
++
++export function parsePanelMessage(value: unknown): PanelMessage | null {
++  const message = unwrapPluginMessage(value);
++  if (!isRecord(message)) return null;
++  if (message.type === "bridge.session" && typeof message.id === "string") {
++    if (message.action === "restore" || message.action === "clear") {
++      return { type: "bridge.session", id: message.id, action: message.action };
++    }
++    if (message.action === "save" && typeof message.token === "string" && /^[a-f0-9]{64}$/.test(message.token)) {
++      return { type: "bridge.session", id: message.id, action: "save", token: message.token };
++    }
++  }
++  if (message.type === "bridge.connection" && typeof message.connected === "boolean") {
++    return { type: "bridge.connection" as const, connected: message.connected };
++  }
++  if (message.type === "bridge.ui.hide" || message.type === "bridge.ui.exit") {
++    return { type: message.type };
++  }
++  return null;
++}
++
+ function unwrapPluginMessage(value: unknown): unknown {
+   if (!isRecord(value) || !Object.prototype.hasOwnProperty.call(value, "pluginMessage")) {
+     return value;
+diff --git a/mastergo-api-bridge/src/ui/index.html b/mastergo-api-bridge/src/ui/index.html
+new file mode 100644
+index 0000000..949f258
+--- /dev/null
++++ b/mastergo-api-bridge/src/ui/index.html
+@@ -0,0 +1,522 @@
++<!DOCTYPE html>
++<html lang="zh-CN">
++
++<head>
++    <meta charset="UTF-8">
++    <title>MasterGo · DevEco Code</title>
++    <style>
++        body {
++            margin: 0;
++            padding: 16px;
++            font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
++            color: #1f2328;
++            background: #f6f8fa;
++        }
++
++        main {
++            display: grid;
++            gap: 12px;
++        }
++
++        h1 {
++            margin: 0;
++            font-size: 15px;
++            font-weight: 600;
++        }
++
++        dl {
++            display: grid;
++            grid-template-columns: 72px 1fr;
++            gap: 8px;
++            margin: 0;
++        }
++
++        dt {
++            color: #57606a;
++        }
++
++        dd {
++            margin: 0;
++            overflow-wrap: anywhere;
++        }
++
++        .status {
++            width: fit-content;
++            min-height: 24px;
++            padding: 3px 8px;
++            border: 1px solid #d0d7de;
++            border-radius: 6px;
++            background: #ffffff;
++        }
++
++        .connected {
++            border-color: #1a7f37;
++            color: #1a7f37;
++        }
++
++        .disconnected {
++            border-color: #cf222e;
++            color: #cf222e;
++        }
++    </style>
++</head>
++
++<body>
++    <main>
++        <h1>MasterGo · DevEco Code</h1>
++        <p style="margin:0;color:#57606a">连接 DevEco Code，读取设计并导出资源。请先启动本机 DevEco 服务。首次连接只需在本机系统确认框中允许，之后自动连接，无需 MasterGo 个人 Token。</p>
++        <button id="pair-button" type="button" style="padding:12px;border:0;border-radius:6px;background:#0969da;color:white">连接 DevEco Code</button>
++        <div id="pairing-info" hidden>
++            <p>请在本机系统确认框中点击“允许连接”。配对码：<strong id="pairing-code"></strong></p>
++        </div>
++        <details><summary>手动输入连接口令（兼容方式）</summary>
++        <form id="connection-form" style="display:grid;gap:8px">
++            <label for="bridge-token">本机连接口令</label>
++            <input id="bridge-token" type="password" autocomplete="off" spellcheck="false" placeholder="输入本机连接口令" style="box-sizing:border-box;width:100%;padding:8px;border:1px solid #d0d7de;border-radius:6px">
++            <label><input id="remember-connection" type="checkbox">记住此文件的本机连接，重新运行插件时自动连接</label>
++            <button type="submit" style="padding:8px;border:0;border-radius:6px;background:#0969da;color:white">连接本机 MCP</button>
++        </form></details>
++        <dl>
++            <dt>Status</dt>
++            <dd><span id="status" class="status disconnected">Disconnected</span></dd>
++            <dt>Endpoint</dt>
++            <dd id="endpoint">ws://127.0.0.1:3000/bridge</dd>
++            <dt>Last event</dt>
++            <dd id="last-event">Waiting</dd>
++        </dl>
++        <div style="display:flex;gap:8px">
++            <button id="background-button" type="button" disabled>后台运行</button>
++            <button id="disconnect-button" type="button" disabled>断开连接</button>
++        </div>
++        <p style="margin:0;color:#57606a">“后台运行”隐藏当前面板。在 DevEco Code 中说“显示 MasterGo 连接面板”可唤回原实例。从插件菜单再次运行可能重启插件；一键配对后会自动重新连接。口令仅保存在本机，点击“断开连接”会清除。右上角 × 会结束插件。</p>
++    </main>
++
++    <script>
++        let endpoint = '';
++        const statusEl = document.getElementById('status');
++        const endpointEl = document.getElementById('endpoint');
++        const lastEventEl = document.getElementById('last-event');
++        const pendingPluginRequests = new Map();
++        const pendingSessionRequests = new Map();
++        let activeSocket = null;
++        let pairingSocket = null;
++        let reconnectTimer = null;
++        let heartbeatTimer = null;
++        let reconnectAttempt = 0;
++        let connectionSerial = 0;
++
++        const HEARTBEAT_INTERVAL_MS = 5000;
++        const BASE_RECONNECT_DELAY_MS = 1000;
++        const MAX_RECONNECT_DELAY_MS = 10000;
++
++        endpointEl.textContent = 'ws://127.0.0.1:3000/bridge';
++        document.getElementById('connection-form').addEventListener('submit', async (event) => {
++            event.preventDefault();
++            const input = document.getElementById('bridge-token');
++            const token = input.value.trim();
++            if (!/^[a-f0-9]{64}$/.test(token)) {
++                setLastEvent('请输入本机 MCP 生成的 64 位连接口令');
++                return;
++            }
++            await connectWithToken(token, document.getElementById('remember-connection').checked);
++        });
++
++        async function connectWithToken(token, remember) {
++            stopPairing();
++            connectionSerial += 1;
++            clearReconnectTimer();
++            clearHeartbeat();
++            if (activeSocket) activeSocket.close();
++            activeSocket = null;
++            for (const pending of pendingPluginRequests.values()) {
++                clearTimeout(pending.timeout);
++                pending.reject(new Error('Connection replaced'));
++            }
++            pendingPluginRequests.clear();
++            endpoint = '';
++            setStatus('Connecting', false);
++            document.getElementById('disconnect-button').disabled = false;
++            const serial = connectionSerial;
++            try {
++                await sessionRequest(remember ? 'save' : 'clear', token);
++            } catch {
++                if (serial === connectionSerial) {
++                    setStatus('Disconnected', false);
++                    setLastEvent('无法更新本机连接记录，请重试。');
++                }
++                return;
++            }
++            if (serial !== connectionSerial) return;
++            endpoint = 'ws://127.0.0.1:3000/bridge?token=' + encodeURIComponent(token);
++            document.getElementById('bridge-token').value = '';
++            document.getElementById('remember-connection').checked = remember;
++            connect();
++        }
++
++        document.getElementById('pair-button').addEventListener('click', () => {
++            stopConnection(false);
++            const serial = connectionSerial;
++            const socket = new WebSocket('ws://127.0.0.1:3000/pairing/request');
++            pairingSocket = socket;
++            document.getElementById('pair-button').disabled = true;
++            document.getElementById('disconnect-button').disabled = false;
++            setLastEvent('正在请求本机配对…');
++            socket.addEventListener('message', async (event) => {
++                if (pairingSocket !== socket || serial !== connectionSerial) return;
++                let message;
++                try { message = JSON.parse(event.data); } catch { return; }
++                if (message.type === 'pairing.ready') {
++                    if (message.method !== 'native' || !/^\d{6}$/.test(message.code)) {
++                        stopPairing();
++                        setLastEvent('本机服务返回了无效配对信息。');
++                        return;
++                    }
++                    document.getElementById('pairing-code').textContent = message.code;
++                    document.getElementById('pairing-info').hidden = false;
++                    setLastEvent('请在本机系统确认框中核对配对码并允许连接。');
++                    return;
++                }
++                if (message.type === 'pairing.unavailable') {
++                    stopPairing();
++                    setLastEvent('无法打开系统确认框。请在本机桌面启动服务后重试，或使用手动连接。');
++                    return;
++                }
++                if (message.type === 'pairing.approved' && /^[a-f0-9]{64}$/.test(message.token)) {
++                    stopPairing();
++                    await connectWithToken(message.token, true);
++                    return;
++                }
++                if (['pairing.denied', 'pairing.expired', 'pairing.cancelled'].includes(message.type)) {
++                    stopPairing();
++                    setLastEvent(message.type === 'pairing.expired' ? '配对已过期，请重新点击连接。' : '配对已取消。');
++                }
++            });
++            socket.addEventListener('close', () => {
++                if (pairingSocket !== socket) return;
++                stopPairing();
++                setLastEvent('配对连接已关闭，请重试或使用手动连接。');
++            });
++            socket.addEventListener('error', () => {
++                if (pairingSocket !== socket) return;
++                stopPairing();
++                setLastEvent('无法连接本机服务，请确认服务已启动并已更新。');
++            });
++        });
++
++        function stopPairing() {
++            const socket = pairingSocket;
++            pairingSocket = null;
++            if (socket) socket.close();
++            document.getElementById('pair-button').disabled = false;
++            document.getElementById('pairing-info').hidden = true;
++            document.getElementById('pairing-code').textContent = '';
++        }
++
++        document.getElementById('background-button').addEventListener('click', () => {
++            parent.postMessage({ type: 'bridge.ui.hide' }, '*');
++        });
++        document.getElementById('disconnect-button').addEventListener('click', () => stopConnection());
++
++        function stopConnection(forget = true) {
++            stopPairing();
++            connectionSerial += 1;
++            clearReconnectTimer();
++            clearHeartbeat();
++            const socket = activeSocket;
++            activeSocket = null;
++            endpoint = '';
++            reconnectAttempt = 0;
++            for (const pending of pendingPluginRequests.values()) {
++                clearTimeout(pending.timeout);
++                pending.reject(new Error('User disconnected'));
++            }
++            pendingPluginRequests.clear();
++            if (socket) socket.close(1000, 'User disconnected');
++            setStatus('Disconnected', false);
++            setLastEvent('已断开。点击“连接 DevEco Code”可重新配对。');
++            if (forget) {
++                document.getElementById('remember-connection').checked = false;
++                const serial = connectionSerial;
++                sessionRequest('clear').catch(() => {
++                    if (serial !== connectionSerial) return;
++                    setLastEvent('已断开，但无法清除本机记录。请再次点击“断开连接”重试。');
++                    document.getElementById('disconnect-button').disabled = false;
++                });
++            }
++        }
++
++        function connect() {
++            if (activeSocket && (
++                activeSocket.readyState === WebSocket.OPEN ||
++                activeSocket.readyState === WebSocket.CONNECTING
++            )) {
++                return;
++            }
++
++            clearReconnectTimer();
++            clearHeartbeat();
++
++            const serial = ++connectionSerial;
++            const ws = new WebSocket(endpoint);
++            activeSocket = ws;
++            setStatus('Connecting', false);
++            setLastEvent(`Connecting to mcp-server (${reconnectAttempt + 1})`);
++
++            ws.addEventListener('open', () => {
++                if (serial !== connectionSerial) {
++                    ws.close();
++                    return;
++                }
++
++                reconnectAttempt = 0;
++                setStatus('Connected', true);
++                setLastEvent('Connected to mcp-server');
++                ws.send(JSON.stringify({
++                    type: 'hello',
++                    name: 'mastergo-api-bridge',
++                    version: '0.2.0',
++                    capabilities: ['mastergo.invoke', 'bridge.panel']
++                }));
++                startHeartbeat(ws, serial);
++            });
++
++            ws.addEventListener('message', async (event) => {
++                if (serial !== connectionSerial) {
++                    return;
++                }
++
++                let message;
++
++                try {
++                    message = JSON.parse(event.data);
++                } catch (error) {
++                    setLastEvent('Invalid JSON message');
++                    return;
++                }
++
++                if (message.type !== 'request' || message.method !== 'mastergo.invoke') {
++                    return;
++                }
++
++                setLastEvent(formatRequestLabel(message.payload));
++
++                try {
++                    const result = await callPlugin(message.payload);
++                    ws.send(JSON.stringify({
++                        id: message.id,
++                        type: 'response',
++                        data: {
++                            code: result.code,
++                            res: result.res,
++                            errorMsg: result.errorMsg
++                        }
++                    }));
++                } catch (error) {
++                    ws.send(JSON.stringify({
++                        id: message.id,
++                        type: 'response',
++                        data: {
++                            code: -1,
++                            res: null,
++                            errorMsg: error instanceof Error ? error.message : String(error)
++                        }
++                    }));
++                }
++            });
++
++            ws.addEventListener('close', (event) => {
++                if (serial !== connectionSerial) {
++                    return;
++                }
++
++                clearHeartbeat();
++                activeSocket = null;
++                setStatus('Disconnected', false);
++                // A second instance owns the bridge now. Do not reconnect forever
++                // and repeatedly kick it off the server.
++                if (event.code === 1012 && event.reason === 'Replaced by a newer api-bridge connection') {
++                    stopConnection(false);
++                    setLastEvent('连接已交给新打开的插件实例。');
++                    return;
++                }
++                scheduleReconnect(`Disconnected (${event.code || 'unknown'})`);
++            });
++
++            ws.addEventListener('error', () => {
++                if (serial !== connectionSerial) {
++                    return;
++                }
++
++                setStatus('Connection error', false);
++                try {
++                    ws.close();
++                } catch (error) {
++                    scheduleReconnect('Connection error');
++                }
++            });
++        }
++
++        function scheduleReconnect(reason) {
++            if (!endpoint || reconnectTimer) {
++                return;
++            }
++
++            const delay = Math.min(
++                MAX_RECONNECT_DELAY_MS,
++                BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempt
++            );
++            reconnectAttempt += 1;
++            setLastEvent(`${reason}. Reconnecting in ${delay}ms`);
++            reconnectTimer = setTimeout(() => {
++                reconnectTimer = null;
++                connect();
++            }, delay);
++        }
++
++        function clearReconnectTimer() {
++            if (!reconnectTimer) {
++                return;
++            }
++
++            clearTimeout(reconnectTimer);
++            reconnectTimer = null;
++        }
++
++        function startHeartbeat(ws, serial) {
++            clearHeartbeat();
++            heartbeatTimer = setInterval(() => {
++                if (serial !== connectionSerial) {
++                    clearHeartbeat();
++                    return;
++                }
++                if (ws.readyState === WebSocket.OPEN) {
++                    return;
++                }
++
++                clearHeartbeat();
++                try {
++                    ws.close();
++                } catch (error) {
++                    scheduleReconnect('Heartbeat detected closed socket');
++                }
++            }, HEARTBEAT_INTERVAL_MS);
++        }
++
++        function clearHeartbeat() {
++            if (!heartbeatTimer) {
++                return;
++            }
++
++            clearInterval(heartbeatTimer);
++            heartbeatTimer = null;
++        }
++
++        function callPlugin(payload) {
++            return new Promise((resolve, reject) => {
++                const id = createId();
++                const timeout = setTimeout(() => {
++                    pendingPluginRequests.delete(id);
++                    reject(new Error('Plugin request timed out'));
++                }, 10000);
++
++                pendingPluginRequests.set(id, {
++                    resolve,
++                    reject,
++                    timeout
++                });
++
++                parent.postMessage({
++                    type: 'bridge.request',
++                    id,
++                    payload
++                }, '*');
++            });
++        }
++
++        window.onmessage = (event) => {
++            const message = event.data && (event.data.pluginMessage || event.data);
++
++            if (message?.type === 'bridge.session.result') {
++                const pending = pendingSessionRequests.get(message.id);
++                if (!pending) return;
++                clearTimeout(pending.timeout);
++                pendingSessionRequests.delete(message.id);
++                if (message.ok) pending.resolve(message.token);
++                else pending.reject(new Error('Local connection storage unavailable'));
++                return;
++            }
++
++            if (!message || message.type !== 'bridge.response') {
++                return;
++            }
++
++            const pending = pendingPluginRequests.get(message.id);
++            if (!pending) {
++                return;
++            }
++
++            clearTimeout(pending.timeout);
++            pendingPluginRequests.delete(message.id);
++
++            const data = message.data || {};
++            pending.resolve({
++                code: Number.isInteger(data.code) ? data.code : -1,
++                res: Object.prototype.hasOwnProperty.call(data, 'res') ? data.res : null,
++                errorMsg: typeof data.errorMsg === 'string' ? data.errorMsg : ''
++            });
++        };
++
++        function setStatus(text, connected) {
++            statusEl.textContent = text;
++            statusEl.classList.toggle('connected', connected);
++            statusEl.classList.toggle('disconnected', !connected);
++            document.getElementById('background-button').disabled = !connected;
++            document.getElementById('disconnect-button').disabled = !endpoint;
++            parent.postMessage({ type: 'bridge.connection', connected }, '*');
++        }
++
++        function setLastEvent(text) {
++            lastEventEl.textContent = text;
++        }
++
++        function formatRequestLabel(payload) {
++            if (!payload || typeof payload !== 'object') {
++                return 'Unknown request';
++            }
++
++            return String(payload.method || 'Unknown request');
++        }
++
++        function createId() {
++            if (globalThis.crypto?.randomUUID) {
++                return globalThis.crypto.randomUUID();
++            }
++
++            return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
++        }
++
++        function sessionRequest(action, token) {
++            return new Promise((resolve, reject) => {
++                const id = createId();
++                const timeout = setTimeout(() => {
++                    pendingSessionRequests.delete(id);
++                    reject(new Error('Local connection storage timed out'));
++                }, 5000);
++                pendingSessionRequests.set(id, { resolve, reject, timeout });
++                parent.postMessage({ type: 'bridge.session', id, action, ...(action === 'save' ? { token } : {}) }, '*');
++            });
++        }
++
++        const restoreSerial = connectionSerial;
++        sessionRequest('restore').then((token) => {
++            if (restoreSerial !== connectionSerial || typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
++            document.getElementById('remember-connection').checked = true;
++            endpoint = 'ws://127.0.0.1:3000/bridge?token=' + encodeURIComponent(token);
++            connect();
++        }).catch(() => {
++            if (restoreSerial === connectionSerial) setLastEvent('无法读取本机连接记录，请手动连接。');
++        });
++    </script>
++</body>
++
++</html>
+diff --git a/mastergo-api-bridge/test/background-runtime.test.mjs b/mastergo-api-bridge/test/background-runtime.test.mjs
+new file mode 100644
+index 0000000..c8b336a
+--- /dev/null
++++ b/mastergo-api-bridge/test/background-runtime.test.mjs
+@@ -0,0 +1,293 @@
++import assert from 'node:assert/strict';
++import fs from 'node:fs';
++import vm from 'node:vm';
++import test from 'node:test';
++import { buildSync } from 'esbuild';
++
++const plugin = buildSync({ entryPoints: ['src/plugin/index.ts'], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2019' }).outputFiles[0].text;
++const html = fs.readFileSync('src/ui/index.html', 'utf8');
++const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
++
++function createRuntime(storage = new Map(), documentId = "test-document", readStored) {
++  const elements = new Map([...html.matchAll(/id="([^"]+)"/g)].map((match) => {
++    const element = new EventTarget();
++    Object.assign(element, { value: '', textContent: '', disabled: false, checked: false, classList: { toggle() {} }, removeAttribute(name) { delete this[name]; } });
++    return [match[1], element];
++  }));
++  const sockets = [];
++  const replies = new Map();
++  const timers = new Set();
++  const confirmations = [];
++  const pluginMessages = [];
++  let closed = 0;
++  let requestId = 0;
++  class Socket {
++    static OPEN = 1;
++    static CONNECTING = 0;
++    readyState = 0;
++    listeners = new Map();
++    constructor(url) { this.url = url; sockets.push(this); }
++    addEventListener(name, listener) { this.listeners.set(name, listener); }
++    emit(name, value = {}) { if (name === 'open') this.readyState = 1; return this.listeners.get(name)?.(value); }
++    send(text) { const message = JSON.parse(text); if (message.id) { replies.get(message.id)?.(message); replies.delete(message.id); } }
++    close(code = 1000) { this.readyState = 3; this.emit('close', { code }); }
++  }
++  const popupAttempts = [];
++  const window = { open() { popupAttempts.push(true); throw new Error('The host blocks iframe popups'); } };
++  const events = new Map();
++  const settle = () => new Promise((resolve) => setImmediate(resolve));
++  const ui = {
++    viewport: { visible: true },
++    show() { this.viewport.visible = true; },
++    hide() { this.viewport.visible = false; },
++    close() { closed += 1; },
++    setCloseConfirm(value) { confirmations.push(value); },
++    postMessage(message) { pluginMessages.push(message); window.onmessage?.({ data: { pluginMessage: message } }); },
++  };
++  const mg = {
++    ui, apiVersion: '1.0.0', documentId,
++    on(name, listener) { events.set(name, listener); },
++    clientStorage: {
++      async getAsync(key) { return readStored ? readStored(key) : storage.get(key); },
++      async setAsync(key, value) { storage.set(key, value); },
++      async deleteAsync(key) { storage.delete(key); },
++    },
++    showUI() {}, closePlugin() { closed += 1; },
++  };
++  const clear = (id) => { clearTimeout(id); clearInterval(id); timers.delete(id); };
++  const context = vm.createContext({
++    mg, __html__: html, window, WebSocket: Socket,
++    document: { getElementById(id) { assert.ok(elements.has(id), `Missing UI element ${id}`); return elements.get(id); } },
++    parent: { postMessage(message) { void ui.onmessage(message); } },
++    setTimeout(fn, delay) { const id = setTimeout(() => { timers.delete(id); fn(); }, delay); timers.add(id); return id; },
++    setInterval(fn, delay) { const id = setInterval(fn, delay); timers.add(id); return id; },
++    clearTimeout: clear, clearInterval: clear,
++  });
++  vm.runInContext(plugin, context);
++  vm.runInContext(script, context);
++  return {
++    ui, sockets, confirmations, pluginMessages, timers, elements, settle, popupAttempts,
++    run() { events.get("run")?.({ command: "" }); },
++    get closed() { return closed; },
++    async connect(remember = false) {
++      await settle();
++      elements.get('bridge-token').value = '0'.repeat(64);
++      elements.get('remember-connection').checked = remember;
++      elements.get('connection-form').dispatchEvent(new Event('submit', { cancelable: true }));
++      await settle();
++      sockets.at(-1).emit('open');
++    },
++    click(id) { elements.get(id).dispatchEvent(new Event('click')); },
++    request(payload) { const id = `panel-test-${++requestId}`; return new Promise((resolve) => { replies.set(id, resolve); sockets.at(-1).emit('message', { data: JSON.stringify({ type: 'request', method: 'mastergo.invoke', id, payload }) }); }); },
++    async direct(payload) { await ui.onmessage({ type: 'bridge.request', id: 'direct-test', payload }); return pluginMessages.at(-1).data; },
++    dispose() { vm.runInContext('stopConnection(false)', context); timers.forEach(clear); },
++  };
++}
++
++test('background button hides the host UI while the same socket still serves design reads', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  await runtime.connect();
++  runtime.click('background-button');
++  assert.equal(runtime.ui.viewport.visible, false);
++  assert.equal(runtime.sockets.length, 1);
++  assert.equal(runtime.sockets[0].readyState, 1);
++  assert.equal(runtime.closed, 0);
++  const response = await runtime.request({ method: 'mg.apiVersion' });
++  assert.equal(response.data.code, 0);
++  assert.equal(response.data.res, '1.0.0');
++  const status = await runtime.request({ method: 'bridge.panel', params: { action: 'status' } });
++  assert.equal(status.data.res.visible, false);
++  assert.equal(status.data.res.connected, true);
++  await runtime.request({ method: 'bridge.panel', params: { action: 'show' } });
++  assert.equal(runtime.ui.viewport.visible, true);
++  assert.equal(runtime.sockets.length, 1);
++});
++
++test('panel controls reject unsupported actions and do not enable canvas writes', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose()); await runtime.connect();
++  assert.equal((await runtime.request({ method: 'bridge.panel', params: { action: 'node.remove' } })).data.code, -1);
++  assert.equal((await runtime.request({ method: 'node.remove', params: { id: '1:02' } })).data.code, -1);
++  assert.equal(runtime.ui.viewport.visible, true);
++});
++
++test('explicit disconnect closes the socket and clears reconnect timers', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose()); await runtime.connect();
++  runtime.click('disconnect-button');
++  await runtime.settle();
++  assert.equal(runtime.sockets[0].readyState, 3);
++  assert.equal(runtime.timers.size, 0);
++  assert.equal(runtime.confirmations.at(-1).enabled, false);
++  assert.equal(runtime.closed, 0);
++});
++
++test('a lost connection shows the hidden panel and reconnects only until explicitly stopped', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose()); await runtime.connect();
++  runtime.click('background-button');
++  runtime.sockets[0].close(1006);
++  assert.equal(runtime.ui.viewport.visible, true);
++  assert.equal(runtime.timers.size, 1);
++  runtime.click('disconnect-button');
++  await runtime.settle();
++  assert.equal(runtime.timers.size, 0);
++});
++
++test('background mode is refused before connecting', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  const response = await runtime.direct({ method: 'bridge.panel', params: { action: 'hide' } });
++  assert.equal(response.code, -1);
++  assert.equal(runtime.ui.viewport.visible, true);
++});
++
++
++test('running an existing hidden plugin reveals the same connected instance', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  await runtime.connect(); runtime.click('background-button'); runtime.run();
++  assert.equal(runtime.ui.viewport.visible, true);
++  assert.equal(runtime.sockets.length, 1);
++  assert.equal((await runtime.request({ method: 'mg.apiVersion' })).data.res, '1.0.0');
++});
++
++test('menu restart restores an opted-in connection and can read after hiding again', async (t) => {
++  const storage = new Map();
++  const old = createRuntime(storage);
++  await old.connect(true); old.click('background-button'); old.dispose();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.settle();
++  assert.equal(runtime.sockets.length, 1);
++  assert.equal(runtime.elements.get('bridge-token').value, '');
++  assert.equal(runtime.elements.get('remember-connection').checked, true);
++  runtime.sockets[0].emit('open'); runtime.click('background-button');
++  assert.equal((await runtime.request({ method: 'mg.apiVersion' })).data.res, '1.0.0');
++  await runtime.request({ method: 'bridge.panel', params: { action: 'show' } });
++  assert.equal(runtime.ui.viewport.visible, true);
++  assert.equal(runtime.sockets.length, 1);
++});
++
++test('without opt-in, restarting does not retain or automatically reuse the credential', async (t) => {
++  const storage = new Map();
++  const old = createRuntime(storage);
++  await old.connect(); old.dispose();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.settle();
++  assert.equal(storage.size, 0);
++  assert.equal(runtime.sockets.length, 0);
++});
++
++test('explicit disconnect removes remembered credentials before the next restart', async (t) => {
++  const storage = new Map();
++  const old = createRuntime(storage);
++  await old.connect(true); old.click('disconnect-button'); await old.settle(); old.dispose();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.settle();
++  assert.equal(storage.size, 0);
++  assert.equal(runtime.sockets.length, 0);
++});
++
++test('remembered pairing does not connect a different design document', async (t) => {
++  const storage = new Map();
++  const old = createRuntime(storage, 'first');
++  await old.connect(true); old.dispose();
++  const runtime = createRuntime(storage, 'second'); t.after(() => runtime.dispose());
++  await runtime.settle();
++  assert.equal(runtime.sockets.length, 0);
++});
++
++test('a delayed restore cannot reconnect after the user disconnects', async (t) => {
++  let release;
++  const runtime = createRuntime(new Map(), 'test-document', () => new Promise((resolve) => { release = resolve; }));
++  t.after(() => runtime.dispose());
++  await runtime.settle();
++  runtime.click('disconnect-button');
++  release('0'.repeat(64)); await runtime.settle();
++  assert.equal(runtime.sockets.length, 0);
++  assert.equal(runtime.timers.size, 0);
++});
++
++test('a replaced instance does not fight the new instance or erase its saved pairing', async (t) => {
++  const storage = new Map();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.connect(true);
++  runtime.sockets[0].emit('close', { code: 1012, reason: 'Replaced by a newer api-bridge connection' });
++  await runtime.settle();
++  assert.equal(runtime.timers.size, 0);
++  assert.equal(storage.size, 1);
++});
++
++test('MCP requests cannot read local pairing credentials', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  await runtime.connect(true);
++  const response = await runtime.request({ method: 'bridge.session', params: { action: 'restore' } });
++  assert.equal(response.data.code, -1);
++  assert.equal(JSON.stringify(response).includes('0'.repeat(64)), false);
++});
++
++
++test('one-click pairing waits for approval then saves locally and connects without token input', async (t) => {
++  const storage = new Map();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.settle(); runtime.click('pair-button');
++  const pairing = runtime.sockets[0];
++  assert.equal(pairing.url, 'ws://127.0.0.1:3000/pairing/request');
++  await pairing.emit('message', { data: JSON.stringify({type:'pairing.ready', code:'123456', method:'native'}) });
++  assert.equal(runtime.elements.get('pairing-code').textContent, '123456');
++  assert.equal(runtime.sockets.length, 1);
++  assert.equal(storage.size, 0);
++  await pairing.emit('message', { data: JSON.stringify({type:'pairing.approved', token:'1'.repeat(64)}) });
++  await runtime.settle();
++  assert.equal(runtime.sockets.length, 2);
++  assert.equal(storage.size, 1);
++  assert.equal(runtime.elements.get('bridge-token').value, '');
++  runtime.sockets[1].emit('open');
++  runtime.click('background-button');
++  assert.equal((await runtime.request({method:'mg.apiVersion'})).data.res, '1.0.0');
++  runtime.dispose();
++  const restarted = createRuntime(storage); t.after(() => restarted.dispose());
++  await restarted.settle();
++  assert.equal(restarted.sockets.length, 1);
++  assert.equal(restarted.sockets[0].url, runtime.sockets[1].url);
++});
++
++for (const status of ['denied', 'expired', 'cancelled', 'unavailable']) {
++  test(`pairing ${status} does not connect or save credentials`, async (t) => {
++    const storage = new Map();
++    const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++    await runtime.settle(); runtime.click('pair-button');
++    await runtime.sockets[0].emit('message', { data: JSON.stringify({type:`pairing.${status}`}) });
++    assert.equal(runtime.sockets.length, 1);
++    assert.equal(storage.size, 0);
++    assert.equal(runtime.elements.get('pair-button').disabled, false);
++  });
++}
++
++test('cancelled pairing ignores late approval and never reconnects', async (t) => {
++  const storage = new Map();
++  const runtime = createRuntime(storage); t.after(() => runtime.dispose());
++  await runtime.settle(); runtime.click('pair-button');
++  const pairing = runtime.sockets[0];
++  runtime.click('disconnect-button'); await runtime.settle();
++  await pairing.emit('message', { data: JSON.stringify({type:'pairing.approved',token:'1'.repeat(64)}) });
++  assert.equal(runtime.sockets.length, 1);
++  assert.equal(storage.size, 0);
++});
++
++test('pairing rejects confirmation links outside the local service', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  await runtime.settle(); runtime.click('pair-button');
++  await runtime.sockets[0].emit('message', { data: JSON.stringify({type:'pairing.ready',code:'123456',approvalUrl:'https://example.com/'}) });
++  assert.equal(runtime.sockets[0].readyState, 3);
++  assert.equal(runtime.popupAttempts.length, 0);
++});
++
++test('pairing requests a native confirmation without opening an iframe popup', async (t) => {
++  const runtime = createRuntime(); t.after(() => runtime.dispose());
++  await runtime.settle(); runtime.click('pair-button');
++  const socket = runtime.sockets[0];
++  await socket.emit('message', { data: JSON.stringify({type:'pairing.ready', code:'123456', method:'native'}) });
++  assert.equal(runtime.popupAttempts.length, 0);
++  assert.equal(runtime.elements.get('pairing-info').hidden, false);
++  assert.match(runtime.elements.get('last-event').textContent, /本机系统确认框/);
++  await socket.emit('message', { data: JSON.stringify({type:'pairing.approved', token:'1'.repeat(64)}) });
++  await runtime.settle();
++  runtime.sockets[1].emit('open');
++  assert.equal((await runtime.request({method:'mg.apiVersion'})).data.res, '1.0.0');
++});
+diff --git a/mastergo-api-bridge/test/export-result.test.mjs b/mastergo-api-bridge/test/export-result.test.mjs
+new file mode 100644
+index 0000000..1e0950f
+--- /dev/null
++++ b/mastergo-api-bridge/test/export-result.test.mjs
+@@ -0,0 +1,35 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { build } from "esbuild";
++
++// Run the real serializer without the browser-only global that caused the live failure.
++Reflect.deleteProperty(globalThis, "btoa");
++const bundled = await build({
++  entryPoints: [new URL("../src/plugin/api/node/operations/result.ts", import.meta.url).pathname],
++  bundle: true,
++  format: "esm",
++  platform: "neutral",
++  write: false,
++});
++const { serializeExportResult } = await import(
++  "data:text/javascript;base64," + Buffer.from(bundled.outputFiles[0].text).toString("base64")
++);
++
++for (const size of [0, 1, 2, 3, 256, 12_287, 12_288, 12_289, 131_073]) {
++  test(`exports ${size} binary bytes without browser or Node encoding globals`, () => {
++    const bytes = Uint8Array.from({ length: size }, (_, index) => (index * 37) % 256);
++    const result = serializeExportResult(bytes);
++    assert.equal(result.byteLength, size);
++    assert.equal(result.encoding, "base64");
++    assert.equal(result.data, Buffer.from(bytes).toString("base64"));
++    assert.deepEqual(Buffer.from(result.data, "base64"), Buffer.from(bytes));
++  });
++}
++
++test("retains binary size limits", () => {
++  assert.throws(() => serializeExportResult(new Uint8Array(4), { maxBytes: 3 }), /exceeding maxBytes/);
++});
++
++test("preserves SVG strings", () => {
++  assert.equal(serializeExportResult('<svg width="321" height="640"/>'), '<svg width="321" height="640"/>');
++});
+diff --git a/mastergo-api-bridge/test/ui-message-shape.test.ts b/mastergo-api-bridge/test/ui-message-shape.test.ts
+index 4a3b682..119f8fe 100644
+--- a/mastergo-api-bridge/test/ui-message-shape.test.ts
++++ b/mastergo-api-bridge/test/ui-message-shape.test.ts
+@@ -5,7 +5,7 @@ import test from "node:test";
+ const html = readFileSync(new URL("../plugin/index.html", import.meta.url), "utf8");
+ 
+ test("posts bridge requests directly to the MasterGo plugin runtime", () => {
+-  const postMessageIndex = html.indexOf("parent.postMessage({");
++  const postMessageIndex = html.indexOf("parent.postMessage({", html.indexOf("function callPlugin(payload)"));
+ 
+   assert.notEqual(postMessageIndex, -1);
+ 
+diff --git a/mcp-server/src/confirm-pairing.ts b/mcp-server/src/confirm-pairing.ts
+new file mode 100644
+index 0000000..83053d0
+--- /dev/null
++++ b/mcp-server/src/confirm-pairing.ts
+@@ -0,0 +1,64 @@
++import { spawn } from "node:child_process";
++
++export type PairingDecision = "approved" | "denied" | "expired" | "cancelled" | "unavailable";
++
++export function confirmPairing(code: string, signal: AbortSignal): Promise<PairingDecision> {
++  if (signal.aborted) return Promise.resolve("cancelled");
++  if (!/^\d{6}$/.test(code)) return Promise.resolve("unavailable");
++  const text = `是否允许 MasterGo 插件连接本机 DevEco Code？\n\n配对码：${code}\n请确认与插件中显示的配对码一致。\n\n允许后可读取当前设计和导出资源；连接会保存在本机，之后自动连接。`;
++  const command = process.platform === "darwin" ? "/usr/bin/osascript"
++    : process.platform === "win32" ? "powershell.exe" : "zenity";
++  const args = process.platform === "darwin" ? ["-e", `
++on run argv
++  try
++    set answer to display dialog (item 1 of argv) with title "MasterGo 连接 DevEco Code" buttons {"取消", "允许连接"} default button "取消" cancel button "取消" with icon caution giving up after 120
++    if gave up of answer then return "expired"
++    if button returned of answer is "允许连接" then return "approved"
++    return "denied"
++  on error number -128
++    return "denied"
++  end try
++end run`, text] : process.platform === "win32" ? ["-NoProfile", "-NonInteractive", "-Sta", "-Command", `
++Add-Type -AssemblyName System.Windows.Forms
++$result = [System.Windows.Forms.MessageBox]::Show($env:DEVECO_PAIRING_TEXT, 'MasterGo 连接 DevEco Code', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question, [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
++if ($result -eq 'Yes') { Write-Output 'approved' } else { Write-Output 'denied' }
++`] : ["--question", "--title=MasterGo 连接 DevEco Code", `--text=${text}`,
++    "--ok-label=允许连接", "--cancel-label=取消", "--default-cancel", "--timeout=120"];
++  return new Promise((resolve) => {
++    // The dialog receives a display code, never the bridge credential.
++    const child = spawn(command, args, {
++      stdio: ["ignore", "pipe", "ignore"], shell: false,
++      env: { ...process.env, MASTERGO_BRIDGE_TOKEN: undefined,
++        ...(process.platform === "win32" ? { DEVECO_PAIRING_TEXT: text } : {}) },
++    });
++    let output = "";
++    let settled = false;
++    const finish = (decision: PairingDecision) => {
++      if (settled) return;
++      settled = true;
++      clearTimeout(timer);
++      signal.removeEventListener("abort", cancel);
++      child.stdout.destroy();
++      if (child.exitCode === null) child.kill();
++      resolve(decision);
++    };
++    const cancel = () => finish("cancelled");
++    const timer = setTimeout(() => finish("expired"), 120_000);
++    signal.addEventListener("abort", cancel, { once: true });
++    child.stdout.on("data", (bytes: Buffer) => {
++      output += bytes.toString("utf8");
++      if (output.length > 256) finish("unavailable");
++    });
++    child.once("error", () => finish("unavailable"));
++    child.once("close", (exitCode) => {
++      if (process.platform !== "darwin" && process.platform !== "win32") {
++        finish(exitCode === 0 ? "approved" : exitCode === 1 ? "denied" : exitCode === 5 ? "expired" : "unavailable");
++        return;
++      }
++      const decision = output.trim();
++      finish(exitCode === 0 && (decision === "approved" || decision === "denied" || decision === "expired")
++        ? decision : "unavailable");
++    });
++    if (signal.aborted) cancel();
++  });
++}
+diff --git a/mcp-server/src/index.ts b/mcp-server/src/index.ts
+index 1bef97b..69d0542 100644
+--- a/mcp-server/src/index.ts
++++ b/mcp-server/src/index.ts
+@@ -7,11 +7,14 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+ import { z } from "zod";
+ 
+ import { MasterGoBridgeServer } from "./bridge-server.js";
++import { PairingServer } from "./pairing-server.js";
++import { confirmPairing } from "./confirm-pairing.js";
+ import { loadConfig, type ServerConfig } from "./config.js";
+ import { createMasterGoApiRegistry } from "./mastergo-api/register-apis.js";
+ 
+ const config = loadConfig();
+ const bridgeServer = new MasterGoBridgeServer(config);
++const pairingServer = new PairingServer(config, 120_000, confirmPairing);
+ const apiRegistry = createMasterGoApiRegistry();
+ 
+ function createMcpServer(): McpServer {
+@@ -146,6 +149,30 @@ function createMcpServer(): McpServer {
+     },
+   );
+ 
++  server.registerTool(
++    "mastergo_connection_panel",
++    {
++      title: "Manage the MasterGo connection panel",
++      description:
++        "Show, hide or inspect the connection panel of the running DevEco community plugin. Hiding keeps the plugin connected; it does not close the plugin. This tool cannot edit the canvas.",
++      inputSchema: { action: z.enum(["show", "hide", "status"]) },
++      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
++    },
++    async ({ action }) => {
++      const status = bridgeServer.status();
++      if (!status.connected) return jsonResult({ connected: false, visible: null, errorMsg: "Open the MasterGo connection plugin and connect first." }, true);
++      if (!status.client?.capabilities?.includes("bridge.panel")) {
++        return jsonResult({ connected: true, visible: null, errorMsg: "Reload the updated MasterGo plugin once to enable background controls." }, true);
++      }
++      try {
++        const result = await bridgeServer.request({ method: "bridge.panel", params: { action } });
++        return jsonResult(result, result.data.code !== 0);
++      } catch (error) {
++        return jsonResult({ errorMsg: error instanceof Error ? error.message : String(error) }, true);
++      }
++    },
++  );
++
+   return server;
+ }
+ 
+@@ -168,6 +195,7 @@ const httpServer = createServer((req, res) => {
+ });
+ 
+ httpServer.on("upgrade", (req, socket, head) => {
++  if (pairingServer.handleUpgrade(req, socket, head)) return;
+   if (bridgeServer.handleUpgrade(req, socket, head)) {
+     return;
+   }
+@@ -201,6 +229,7 @@ async function handleHttpRequest(
+   req: IncomingMessage,
+   res: ServerResponse,
+ ): Promise<void> {
++  if (await pairingServer.handleHttp(req, res)) return;
+   const url = parseRequestUrl(req, config);
+ 
+   if (req.method === "GET" && url.pathname === "/health") {
+@@ -243,6 +272,10 @@ async function handleHttpRequest(
+   const transport = new StreamableHTTPServerTransport({
+     sessionIdGenerator: undefined,
+     enableJsonResponse: true,
++    // Pairing protects the plugin socket; MCP also needs its own browser boundary.
++    enableDnsRebindingProtection: true,
++    allowedHosts: [new URL(config.mcpUrl).host, `localhost:${config.httpPort}`],
++    allowedOrigins: [new URL(config.mcpUrl).origin, `http://localhost:${config.httpPort}`],
+   });
+ 
+   try {
+@@ -292,6 +325,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
+ }
+ 
+ async function shutdown(): Promise<void> {
++  pairingServer.close();
++  // Close the upgraded socket before waiting for the HTTP listener to drain.
++  await bridgeServer.close();
+   await new Promise<void>((resolve, reject) => {
+     httpServer.close((error) => {
+       if (error) {
+@@ -303,6 +339,5 @@ async function shutdown(): Promise<void> {
+     });
+   });
+ 
+-  await bridgeServer.close();
+   process.exit(0);
+ }
+diff --git a/mcp-server/src/mastergo-api/register-apis.ts b/mcp-server/src/mastergo-api/register-apis.ts
+index d953e17..88085b0 100644
+--- a/mcp-server/src/mastergo-api/register-apis.ts
++++ b/mcp-server/src/mastergo-api/register-apis.ts
+@@ -7,6 +7,14 @@ export function createMasterGoApiRegistry(): MasterGoApiRegistry {
+   const registry = new MasterGoApiRegistry();
+ 
+   for (const strategy of [...mgApiStrategies, ...iconApiStrategies, ...nodeApiStrategies]) {
++    // This local DevEco trial exposes only design acquisition, including public exports.
++    if (process.env.DEVECO_MASTERGO_READ_ONLY === "1" && !new Set([
++      "mg.apiVersion", "mg.document", "mg.documentId", "mg.getNodeById",
++      "node.page", "node.summary", "node.findChildren", "node.findAll",
++      "node.findAllWithCriteria", "node.export", "node.exportAsync",
++    ]).has(strategy.method)) {
++      continue;
++    }
+     registry.register(strategy);
+   }
+ 
+diff --git a/mcp-server/src/pairing-server.ts b/mcp-server/src/pairing-server.ts
+new file mode 100644
+index 0000000..945dd17
+--- /dev/null
++++ b/mcp-server/src/pairing-server.ts
+@@ -0,0 +1,96 @@
++import { randomBytes, randomInt } from "node:crypto";
++import type { IncomingMessage, ServerResponse } from "node:http";
++import type { Duplex } from "node:stream";
++import { WebSocket, WebSocketServer } from "ws";
++import type { ServerConfig } from "./config.js";
++import type { PairingDecision } from "./confirm-pairing.js";
++
++type Pairing = {
++  socket: WebSocket;
++  controller: AbortController;
++  code: string;
++  timer: NodeJS.Timeout;
++};
++
++// Only the OS confirmation result may authorize the requesting socket.
++// Browser requests and plugin messages cannot approve a pairing.
++export class PairingServer {
++  private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
++  private readonly pending = new Map<string, Pairing>();
++  private readonly attempts: number[] = [];
++  private readonly origin: string;
++
++  constructor(
++    private readonly config: ServerConfig,
++    private readonly lifetimeMs = 120_000,
++    private readonly confirm?: (code: string, signal: AbortSignal) => Promise<PairingDecision>,
++  ) {
++    this.origin = new URL(config.mcpUrl).origin;
++  }
++
++  private local(req: IncomingMessage) {
++    return this.config.httpHost === "127.0.0.1" &&
++      req.headers.host === new URL(this.origin).host &&
++      ["127.0.0.1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
++  }
++
++  handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
++    if (req.url?.split("?")[0] !== "/pairing/request") return false;
++    const origin = req.headers.origin;
++    const allowedOrigin = origin === "null" || origin === undefined ||
++      /^https:\/\/(?:[a-z0-9-]+\.)*mastergo\.com$/.test(origin);
++    const now = Date.now();
++    while (this.attempts.length && this.attempts[0] < now - 60_000) this.attempts.shift();
++    if (!this.local(req) || !allowedOrigin || !this.config.bridgeToken ||
++      this.pending.size >= 1 || this.attempts.length >= 6) {
++      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
++      return true;
++    }
++    this.attempts.push(now);
++    this.wss.handleUpgrade(req, socket, head, (ws) => {
++      const id = randomBytes(24).toString("hex");
++      const pairing: Pairing = {
++        socket: ws,
++        controller: new AbortController(),
++        code: String(randomInt(100000, 1000000)),
++        timer: setTimeout(() => this.finish(id, "expired"), this.lifetimeMs),
++      };
++      this.pending.set(id, pairing);
++      ws.on("error", () => this.finish(id, "cancelled"));
++      ws.on("close", () => this.finish(id, "cancelled"));
++      ws.send(JSON.stringify({ type: "pairing.ready", method: "native", code: pairing.code,
++        expiresInSeconds: Math.ceil(this.lifetimeMs / 1000) }));
++      void Promise.resolve().then(() => this.confirm?.(pairing.code, pairing.controller.signal) ?? "unavailable")
++        .catch(() => "unavailable" as const).then((decision) => {
++          if (this.pending.get(id) === pairing) this.finish(id, decision);
++        });
++    });
++    return true;
++  }
++
++  async handleHttp(req: IncomingMessage, res: ServerResponse) {
++    if (!/^\/pairing(?:\/|$)/.test(req.url ?? "")) return false;
++    res.writeHead(this.local(req) ? 410 : 403, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
++    res.end("首次配对已改为本机系统确认框。请返回 MasterGo，点击“连接 DevEco Code”，然后在系统确认框中允许连接。无需浏览器。 ");
++    return true;
++  }
++
++  private finish(id: string, status: PairingDecision) {
++    const pairing = this.pending.get(id);
++    if (!pairing) return;
++    this.pending.delete(id);
++    clearTimeout(pairing.timer);
++    pairing.controller.abort();
++    if (pairing.socket.readyState === WebSocket.OPEN) {
++      pairing.socket.send(JSON.stringify({ type: `pairing.${status}`,
++        ...(status === "approved" ? { token: this.config.bridgeToken } : {}) }));
++      pairing.socket.close(1000);
++    }
++  }
++
++  close() {
++    for (const id of this.pending.keys()) this.finish(id, "cancelled");
++    for (const ws of this.wss.clients) ws.terminate();
++    this.wss.close();
++  }
++}
+diff --git a/mcp-server/test/connection-panel.test.ts b/mcp-server/test/connection-panel.test.ts
+new file mode 100644
+index 0000000..55b9d89
+--- /dev/null
++++ b/mcp-server/test/connection-panel.test.ts
+@@ -0,0 +1,101 @@
++import assert from "node:assert/strict";
++import { spawn } from "node:child_process";
++import { once } from "node:events";
++import { createServer } from "node:net";
++import { request } from "node:http";
++import { resolve } from "node:path";
++import { setTimeout } from "node:timers/promises";
++import test from "node:test";
++import { Client } from "@modelcontextprotocol/sdk/client/index.js";
++import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
++import { WebSocket } from "ws";
++import { z } from "zod";
++
++const panelResult = z.object({ data: z.object({ code: z.number(), res: z.object({ connected: z.boolean(), visible: z.boolean() }), errorMsg: z.string() }) });
++
++test("connection panel MCP uses the live bridge transport without expanding the canvas allowlist", async (t) => {
++  const reservation = createServer();
++  reservation.listen(0, "127.0.0.1");
++  await once(reservation, "listening");
++  const address = reservation.address();
++  assert.ok(address && typeof address === "object");
++  const port = address.port;
++  await new Promise<void>((done, reject) => reservation.close((error) => error ? reject(error) : done()));
++  const base = `http://127.0.0.1:${port}`;
++  const token = "1".repeat(64);
++  const child = spawn(globalThis.process.execPath, [resolve("dist/index.js")], {
++    env: { ...globalThis.process.env, MCP_HTTP_HOST: "127.0.0.1", MCP_HTTP_PORT: String(port), MASTERGO_BRIDGE_TOKEN: token, DEVECO_MASTERGO_READ_ONLY: "1" },
++    stdio: "ignore",
++  });
++  const client = new Client({ name: "connection-panel-test", version: "1.0.0" });
++  let socket: WebSocket | undefined;
++  t.after(async () => {
++    await client.close();
++    if (socket && socket.readyState !== WebSocket.CLOSED) {
++      const closed = once(socket, "close"); socket.close(); await closed;
++    }
++    if (child.exitCode === null) { const exited = once(child, "exit"); child.kill("SIGTERM"); await exited; }
++  });
++  for (let attempt = 0; attempt < 100; attempt += 1) {
++    if (await fetch(base + "/health").then((response) => response.ok).catch(() => false)) break;
++    await setTimeout(25);
++  }
++  await client.connect(new StreamableHTTPClientTransport(new URL(base + "/mcp")));
++  assert.equal((await client.listTools()).tools.some((tool) => tool.name === "mastergo_connection_panel"), true);
++  assert.equal((await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "show" } })).isError, true);
++  socket = new WebSocket(`ws://127.0.0.1:${port}/bridge?token=${token}`);
++  await once(socket, "open");
++  socket.send(JSON.stringify({ type: "hello", name: "old-plugin", capabilities: ["mastergo.invoke"] }));
++  const old = await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "status" } });
++  assert.equal(old.isError, true);
++  let visible = true;
++  let requestCount = 0;
++  socket.on("message", (bytes) => {
++    const message = z.object({ id: z.string(), payload: z.object({ method: z.string(), params: z.object({ action: z.enum(["show", "hide", "status"]) }) }) }).parse(JSON.parse(String(bytes)));
++    requestCount += 1;
++    if (message.payload.method === "bridge.panel") {
++      if (message.payload.params.action === "hide") visible = false;
++      if (message.payload.params.action === "show") visible = true;
++      socket?.send(JSON.stringify({ id: message.id, type: "response", data: { code: 0, res: { connected: true, visible }, errorMsg: "" } }));
++    }
++  });
++  socket.send(JSON.stringify({ type: "hello", name: "updated-plugin", capabilities: ["mastergo.invoke", "bridge.panel"] }));
++  const hidden = await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "hide" } });
++  assert.equal(hidden.isError, false);
++  assert.deepEqual(panelResult.parse(hidden.structuredContent).data, { code: 0, res: { connected: true, visible: false }, errorMsg: "" });
++  const status = await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "status" } });
++  assert.deepEqual(panelResult.parse(status.structuredContent).data, { code: 0, res: { connected: true, visible: false }, errorMsg: "" });
++  const shown = await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "show" } });
++  assert.deepEqual(panelResult.parse(shown.structuredContent).data, { code: 0, res: { connected: true, visible: true }, errorMsg: "" });
++  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
++    params: { name: "mastergo_connection_panel", arguments: { action: "hide" } } });
++  for (const headers of [
++    { Host: `evil.example:${port}`, Origin: `http://evil.example:${port}` },
++    { Host: `evil.example:${port}` },
++    { Origin: "https://evil.example" },
++    { Origin: "null" },
++  ]) {
++    const statusCode = await new Promise<number | undefined>((resolveResponse, reject) => {
++      const outgoing = request(base + "/mcp", {
++        method: "POST",
++        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream",
++          "Content-Length": Buffer.byteLength(body), ...headers },
++      }, (response) => {
++        response.resume();
++        response.on("end", () => resolveResponse(response.statusCode));
++      });
++      outgoing.on("error", reject);
++      outgoing.end(body);
++    });
++    assert.equal(statusCode, 403);
++    assert.equal(requestCount, 3, "Rejected browser requests must not reach the plugin");
++    assert.equal(visible, true);
++  }
++  const invalid = await client.callTool({ name: "mastergo_connection_panel", arguments: { action: "closePlugin" } });
++  assert.equal(invalid.isError, true);
++  const denied = await client.callTool({ name: "mastergo_api_call", arguments: { method: "node.remove", params: { id: "1:02" } } });
++  assert.equal(denied.isError, true);
++  assert.equal(requestCount, 3);
++  const methods = await client.callTool({ name: "mastergo_api_list", arguments: {} });
++  assert.equal(z.object({ count: z.number() }).parse(methods.structuredContent).count, 11);
++});
+diff --git a/mcp-server/test/pairing-server.test.ts b/mcp-server/test/pairing-server.test.ts
+new file mode 100644
+index 0000000..4a65d2c
+--- /dev/null
++++ b/mcp-server/test/pairing-server.test.ts
+@@ -0,0 +1,156 @@
++import assert from "node:assert/strict";
++import { once } from "node:events";
++import { createServer } from "node:http";
++import test from "node:test";
++import { WebSocket } from "ws";
++import { z } from "zod";
++import { loadConfig } from "../src/config.js";
++import { PairingServer } from "../src/pairing-server.js";
++import { MasterGoBridgeServer } from "../src/bridge-server.js";
++import { confirmPairing } from "../src/confirm-pairing.js";
++import type { PairingDecision } from "../src/confirm-pairing.js";
++
++async function setup(lifetimeMs = 120_000, failure = false) {
++  const http = createServer();
++  http.listen(0, "127.0.0.1");
++  await once(http, "listening");
++  const address = http.address();
++  assert.ok(address && typeof address === "object");
++  const config = loadConfig({ MCP_HTTP_PORT: String(address.port), MASTERGO_BRIDGE_TOKEN: "1".repeat(64) });
++  const prompts: { code: string; signal: AbortSignal; resolve: (decision: PairingDecision) => void }[] = [];
++  const pairing = new PairingServer(config, lifetimeMs, (code, signal) => {
++    if (failure) return Promise.reject(new Error("dialog unavailable"));
++    return new Promise((resolve) => prompts.push({ code, signal, resolve }));
++  });
++  const bridge = new MasterGoBridgeServer(config);
++  const origin = new URL(config.mcpUrl).origin;
++  http.on("request", (req, res) => {
++    void pairing.handleHttp(req, res).then((handled) => {
++      if (!handled) { res.writeHead(404); res.end(); }
++    });
++  });
++  http.on("upgrade", (req, socket, head) => {
++    if (!pairing.handleUpgrade(req, socket, head) && !bridge.handleUpgrade(req, socket, head)) socket.destroy();
++  });
++  return {
++    origin, bridge, config, prompts, pairing,
++    async request() {
++      const socket = new WebSocket(origin.replace("http:", "ws:") + "/pairing/request", { origin: "null" });
++      const messages: unknown[] = [];
++      socket.on("message", (bytes) => messages.push(JSON.parse(String(bytes))));
++      const [bytes] = await once(socket, "message");
++      const info = z.object({ type: z.literal("pairing.ready"), method: z.literal("native"), code: z.string().regex(/^\d{6}$/) }).parse(JSON.parse(String(bytes)));
++      assert.equal(String(bytes).includes(config.bridgeToken!), false);
++      assert.equal(String(bytes).includes("approvalUrl"), false);
++      return { socket, info, messages };
++    },
++    async close() {
++      pairing.close();
++      await bridge.close();
++      await new Promise<void>((resolve) => http.close(() => resolve()));
++    },
++  };
++}
++
++test("native approval releases a token only to its requesting socket and authorizes the bridge", async (t) => {
++  const fixture = await setup(); t.after(() => fixture.close());
++  const request = await fixture.request();
++  assert.equal(fixture.prompts[0].code, request.info.code);
++  assert.equal(fixture.bridge.status().connected, false);
++  const other = new WebSocket(fixture.origin.replace("http:", "ws:") + "/pairing/request");
++  assert.match(String((await once(other, "error"))[0]), /403/);
++  assert.equal(fixture.prompts.length, 1);
++  const result = once(request.socket, "message");
++  fixture.prompts[0].resolve("approved");
++  const message = z.object({ type: z.literal("pairing.approved"), token: z.string() }).parse(JSON.parse(String((await result)[0])));
++  assert.equal(message.token, fixture.config.bridgeToken);
++  assert.equal(fixture.prompts[0].signal.aborted, true);
++  const socket = new WebSocket(fixture.config.bridgeUrl + "?token=" + message.token);
++  await once(socket, "open");
++  assert.equal(fixture.bridge.status().connected, true);
++  const closed = once(socket, "close"); socket.close(); await closed;
++});
++
++for (const status of ["denied", "expired", "cancelled", "unavailable"] as const) {
++  test(`native confirmation ${status} never returns credentials`, async (t) => {
++    const fixture = await setup(); t.after(() => fixture.close());
++    const request = await fixture.request();
++    const result = once(request.socket, "message");
++    fixture.prompts[0].resolve(status);
++    assert.deepEqual(JSON.parse(String((await result)[0])), { type: `pairing.${status}` });
++    assert.equal(fixture.prompts[0].signal.aborted, true);
++    assert.equal(fixture.bridge.status().connected, false);
++  });
++}
++
++test("browser requests and plugin messages cannot approve a native pairing", async (t) => {
++  const fixture = await setup(); t.after(() => fixture.close());
++  const request = await fixture.request();
++  request.socket.send(JSON.stringify({ type: "pairing.approved", decision: "approve" }));
++  for (const method of ["GET", "POST"]) {
++    const response = await fetch(fixture.origin + "/pairing/", { method });
++    assert.equal(response.status, 410);
++    assert.equal((await response.text()).includes(fixture.config.bridgeToken!), false);
++    assert.equal(response.headers.get("access-control-allow-origin"), null);
++  }
++  assert.equal(request.messages.length, 1);
++  assert.equal(fixture.bridge.status().connected, false);
++});
++
++test("closing the plugin aborts the dialog and ignores late approval", async (t) => {
++  const fixture = await setup(); t.after(() => fixture.close());
++  const request = await fixture.request();
++  const aborted = once(fixture.prompts[0].signal, "abort");
++  const closed = once(request.socket, "close"); request.socket.close(); await closed;
++  await aborted;
++  assert.equal(fixture.prompts[0].signal.aborted, true);
++  fixture.prompts[0].resolve("approved");
++  const next = await fixture.request();
++  assert.equal(next.messages.length, 1);
++  assert.equal(fixture.prompts.length, 2);
++  assert.equal(request.messages.length, 1);
++});
++
++test("pairing timeout aborts the dialog and ignores late approval", async (t) => {
++  const fixture = await setup(100); t.after(() => fixture.close());
++  const request = await fixture.request();
++  const [result] = await once(request.socket, "message");
++  assert.deepEqual(JSON.parse(String(result)), { type: "pairing.expired" });
++  assert.equal(fixture.prompts[0].signal.aborted, true);
++  fixture.prompts[0].resolve("approved");
++  await once(request.socket, "close");
++  assert.equal(request.messages.length, 2);
++});
++
++test("service shutdown dismisses the pending dialog", async (t) => {
++  const fixture = await setup(); t.after(() => fixture.close());
++  const request = await fixture.request();
++  const closed = once(request.socket, "close");
++  fixture.pairing.close();
++  await closed;
++  assert.equal(fixture.prompts[0].signal.aborted, true);
++});
++
++test("native helper failures fail closed", async (t) => {
++  const fixture = await setup(120_000, true); t.after(() => fixture.close());
++  const request = await fixture.request();
++  if (request.socket.readyState !== WebSocket.CLOSED) await once(request.socket, "close");
++  assert.deepEqual(request.messages[1], { type: "pairing.unavailable" });
++});
++
++test("native helper rejects invalid codes and already cancelled requests without UI", async () => {
++  for (const code of ["", "--help", "12345", "1234567", "123456;open", "\"123456\""]) {
++    assert.equal(await confirmPairing(code, new AbortController().signal), "unavailable");
++  }
++  assert.equal(await confirmPairing("123456", AbortSignal.abort()), "cancelled");
++});
++
++test("foreign origins and DNS-rebinding hosts cannot create a pairing", async (t) => {
++  const fixture = await setup(); t.after(() => fixture.close());
++  for (const headers of [{ Origin: "https://evil.example" }, { Origin: "null", Host: "evil.example" }]) {
++    const socket = new WebSocket(fixture.origin.replace("http:", "ws:") + "/pairing/request", { headers });
++    const [error] = await once(socket, "error");
++    assert.match(String(error), /403/);
++  }
++  assert.equal(fixture.prompts.length, 0);
++});
