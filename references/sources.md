@@ -12,7 +12,6 @@
 - [ArkTS/ArkUI 编码](arkts-arkui-coding/GUIDE.md) 提供语法限制、API 和规则卡片。
 - [设计稿转 ArkUI](design-to-arkui/GUIDE.md) 提供 Pixso、Figma、MasterGo 工作流及配套脚本。
 - [DevEco CLI 工作流](deveco-cli-workflows/GUIDE.md) 提供工程、编译、签名、部署、设备和日志命令。
-- [DevEco Code 配置](deveco-code-configuration/GUIDE.md) 收录宿主配置方式和示例。
 - [故障日志分析](fault-log-analysis/GUIDE.md) 收录 AppFreeze、CppCrash、JSCrash 分诊及分析工具。
 - [ArkTS 崩溃调试](arkts-crash-debugging/GUIDE.md) 收录运行异常知识和日志解析脚本。
 - [AppAnalyzer 验证](app-quality-verification/GUIDE.md) 收录应用和元服务体检流程。

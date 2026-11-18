@@ -1,7 +1,7 @@
 ---
 name: harmonyos-development-skill
 description: >-
-  开发、迁移、审查或调试 HarmonyOS NEXT 鸿蒙应用时使用。涵盖 ArkTS、ArkUI、Stage 模型、Navigation、状态管理、API 版本和权限、Pixso/Figma/MasterGo 设计转代码、DevEco Studio/Code/CLI、Hvigor、HAP/HAR/HSP、签名部署、HDC、HiLog、JSCrash/CppCrash/AppFreeze、AppAnalyzer 和 DeepLink UI 验证。也用于查询随包提供的 OpenHarmony 离线知识。
+  开发、迁移、审查或调试 HarmonyOS NEXT 鸿蒙应用时使用。涵盖 ArkTS、ArkUI、Stage 模型、Navigation、状态管理、API 版本和权限、Pixso/Figma/MasterGo 设计转代码、DevEco Studio/CLI、Hvigor、HAP/HAR/HSP、签名部署、HDC、HiLog、JSCrash/CppCrash/AppFreeze、AppAnalyzer 和 DeepLink UI 验证。也用于查询随包提供的 OpenHarmony 离线知识。
 ---
 
 # HarmonyOS Development Skill
@@ -26,8 +26,8 @@ description: >-
 - 做**应用或元服务体检**时，按 [AppAnalyzer 验证指南](references/app-quality-verification/GUIDE.md) 选择手动 UX、自动遍历或前台功耗，核对真机和模拟器的能力差异，并按 [报告格式](references/app-quality-verification/references/report-format.md) 解读结果。
 - **用临时 DeepLink 简化 UI 验证**时，按 [DeepLink UI 验证指南](references/deeplink-ui-verification/GUIDE.md) 保存基线、缩短准备路径、部署验证，再恢复工程和设备上的基线应用并复查。核心业务动作和授权按原流程验证。
 
-## 故障分析与工具配置
+## 故障分析
 
 - 收到 **AppFreeze、CppCrash 或系统 JSCrash FaultLog** 时，先按 [故障日志分诊指南](references/fault-log-analysis/GUIDE.md) 运行 `scripts/identify_fault_log.py`，再加载 [AppFreeze](references/fault-log-analysis/references/appfreeze/analyzer.md)、[CppCrash](references/fault-log-analysis/references/cppcrash/analyzer.md) 或 [JSCrash](references/fault-log-analysis/references/jscrash/analyzer.md) 专项。
 - 排查 **ArkTS/JavaScript 运行异常**时，查 [ArkTS 崩溃调试指南](references/arkts-crash-debugging/GUIDE.md)，按需用 Node.js 解析用户提供的日志或采集设备证据。根据栈帧修复，具备设备条件时复现并验证。
-- **配置 DevEco Code** 时，查 [配置指南](references/deveco-code-configuration/GUIDE.md) 的 `deveco.json`、项目路径、Agent、命令、MCP 和权限。接入其他宿主查 [README](README.md#安装到编程-agent)，资料归属见 [来源说明](references/sources.md)。
+- 安装到其他编程 Agent 见 [README](README.md#安装到编程-agent)，各专题来源与许可见 [来源说明](references/sources.md)。

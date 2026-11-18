@@ -23,7 +23,6 @@ harmonyos-development-skill/
 │   ├── deeplink-ui-verification/       # DeepLink UI 验证
 │   ├── design-to-arkui/               # 设计稿转 ArkUI
 │   ├── deveco-cli-workflows/          # DevEco CLI 工作流
-│   ├── deveco-code-configuration/     # DevEco Code 配置
 │   ├── fault-log-analysis/            # 故障日志分诊和分析
 │   ├── harmonyos-development-handbook/ # 鸿蒙开发手册与示例
 │   └── openharmony-knowledge/         # 离线文档、索引和溯源
